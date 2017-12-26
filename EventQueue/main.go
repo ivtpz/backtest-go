@@ -1,7 +1,6 @@
 package main
 
 import (
-	"fmt"
 	"log"
 	"net/http"
 
@@ -15,7 +14,7 @@ func main() {
 	test.SetSymbols(symbols)
 
 	data := backtest.Data{}
-	data.Load("poloniex", "USDT-ETH", "12/10/2017 03:00:00 PM", "12/11/2017 03:00:00 PM")
+	data.Load("poloniex", "USDT-ETH", "12/10/2017 03:00:00 PM", "12/12/2017 03:00:00 PM")
 	test.SetData(&data)
 
 	portfolio := backtest.Portfolio{}
@@ -34,9 +33,6 @@ func main() {
 	test.Run()
 
 	statistic.PrintResult()
-	fmt.Println(portfolio.Value())
-	fmt.Println(statistic.SharpRatio(0.01))
-	fmt.Println(statistic.SortinoRatio(0.01))
 
 	http.HandleFunc("/", statistic.GraphResult)
 	log.Fatal(http.ListenAndServe(":8088", nil))
