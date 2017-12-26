@@ -3,6 +3,7 @@ package backtest
 import (
 	"errors"
 	"fmt"
+	"math"
 	"net/http"
 	"time"
 
@@ -60,21 +61,30 @@ type Statistic struct {
 	equity             []equityPoint
 	high               equityPoint
 	low                equityPoint
+	initialBuy         float64 // TODO: this only handles one currency, needs to support multiple
 }
 
 type equityPoint struct {
-	timestamp    time.Time
-	equity       float64
-	equityReturn float64
-	drawdown     float64
+	timestamp       time.Time
+	equity          float64
+	equityReturn    float64
+	drawdown        float64
+	buyAndHoldValue float64
 }
 
 // Update the complete statistics to a given data event.
 func (s *Statistic) Update(d DataEventHandler, p PortfolioHandler) {
+	if s.initialBuy == 0 {
+		s.initialBuy = p.InitialCash() / d.LatestPrice()
+	}
+
 	// create new equity point based on current data timestamp and portfolio value
 	e := equityPoint{}
 	e.timestamp = d.GetTime()
 	e.equity = p.Value()
+
+	// Record buy and hold value
+	e.buyAndHoldValue = s.initialBuy * d.LatestPrice()
 
 	// calc equity return for current equity point
 	if len(s.equity) > 0 {
@@ -134,7 +144,7 @@ func (s Statistic) PrintResult() {
 
 	fmt.Printf("Counted %d total transactions:\n", len(s.Transactions()))
 	for k, v := range s.Transactions() {
-		fmt.Printf("%d. Transaction: %v Action: %s Price: %f Qty: %f\n", k+1, v.GetTime().Format("2006-01-02"), v.GetDirection(), v.GetPrice(), v.GetQty())
+		fmt.Printf("%d. Transaction: %v Action: %s Price: %f Qty: %f\n", k+1, v.GetTime().Format("2006-01-02 03:04 PM"), v.GetDirection(), v.GetPrice(), v.GetQty())
 	}
 }
 
@@ -190,13 +200,62 @@ func (s Statistic) MaxDrawdownDuration() (d time.Duration) {
 }
 
 func (s *Statistic) GraphResult(res http.ResponseWriter, req *http.Request) {
+	var xv []time.Time
+
+	var yv1 []float64
+	var yv2 []float64
+
+	var maxY float64
+	var minY float64
+
+	for _, e := range s.equity {
+		xv = append(xv, e.timestamp)
+		yv1 = append(yv1, e.equity)
+		yv2 = append(yv2, e.buyAndHoldValue)
+		maxY = math.Max(math.Max(maxY, e.equity), e.buyAndHoldValue)
+		if minY == 0 {
+			minY = maxY
+		}
+		minY = math.Min(math.Min(minY, e.equity), e.buyAndHoldValue)
+	}
+
+	fmt.Println(maxY, minY)
+
+	priceSeries := chart.TimeSeries{
+		Name: "SPY",
+		Style: chart.Style{
+			Show:        true,
+			StrokeColor: chart.GetDefaultColor(0),
+		},
+		XValues: xv,
+		YValues: yv1,
+	}
+
+	comparisonSeries := chart.TimeSeries{
+		Name: "SPC",
+		Style: chart.Style{
+			Show:        true,
+			StrokeColor: chart.GetDefaultColor(1),
+		},
+		XValues: xv,
+		YValues: yv2,
+	}
 
 	graph := chart.Chart{
-		Series: []chart.Series{
-			chart.ContinuousSeries{
-				XValues: []float64{1.0, 2.0, 3.0, 4.0},
-				YValues: []float64{1.0, 2.0, 3.0, 4.0},
+		XAxis: chart.XAxis{
+			Style:        chart.Style{Show: true},
+			TickPosition: chart.TickPositionBetweenTicks,
+		},
+		YAxis: chart.YAxis{
+			Style: chart.Style{Show: true},
+			Range: &chart.ContinuousRange{
+				Max: maxY + (maxY-minY)/10,
+				Min: minY - (maxY-minY)/10,
 			},
+		},
+		Series: []chart.Series{
+			priceSeries,
+			comparisonSeries,
 		},
 	}
 
@@ -237,6 +296,10 @@ func (s *Statistic) SortinoRatio(riskfree float64) float64 {
 
 	sortino := (mean - riskfree) / stdDev
 	return sortino
+}
+
+func (s Statistic) ViewEquityHistory() {
+	fmt.Println(s.equity)
 }
 
 // returns the first equityPoint
