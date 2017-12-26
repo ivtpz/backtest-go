@@ -40,6 +40,7 @@ type Casher interface {
 // Valuer returns the values of the portfolio
 type Valuer interface {
 	Value() float64
+	ViewHoldings()
 }
 
 // Updater handles the updating of the portfolio on data events
